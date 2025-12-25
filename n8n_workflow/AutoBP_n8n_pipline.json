@@ -1,0 +1,1253 @@
+{
+  "name": "AutoBP pipline",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "12b687a1-06fa-4931-a2f7-2c172c4b7e62",
+      "name": "Respond: task_profile",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -26016,
+        2880
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task-intake",
+        "options": {}
+      },
+      "id": "253e4041-9952-4a34-a55f-a0f94918b2f2",
+      "name": "Webhook: Intake задачи1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -27264,
+        2880
+      ],
+      "webhookId": "894fa174-06c6-4af2-aaa3-a9f7a022744e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get start time from webhook (fallback to now if not available)\nconst startTime = $node[\"Webhook: Intake задачи1\"].json[\"__webhookRequestTime\"] || Date.now();\nconst endTime = Date.now();\nconst latencyMs = endTime - startTime;\n\n// Parse AI response\nlet taskProfile;\nlet taskDescription;\n\ntry {\n  const aiText = items[0].json.output[0].content[0].text;\n  if (!aiText) {\n    throw new Error('No text found in AI response');\n  }\n\n  // Extract JSON from ```json ... ```\n  const jsonMatch = aiText.match(/\\{[\\s\\S]*\\}/);\n  if (!jsonMatch) {\n    throw new Error('No JSON block detected in AI response');\n  }\n\n  const parsedResponse = JSON.parse(jsonMatch[0]);\n\n  // Treat entire parsed object as task_profile\n  taskProfile = parsedResponse;\n\n  // Extract description\n  taskDescription = parsedResponse.task_description || null;\n\n} catch (e) {\n  const rawResponse = items[0].json.output ? JSON.stringify(items[0].json.output) : 'No output';\n  throw new Error(\n    'Planner AI did not return valid JSON. Error: ' + e.message +\n    '. Raw response: ' + rawResponse\n  );\n}\n\n// Return enriched payload\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    task_profile: taskProfile,\n    task_description: taskDescription,\n    metrics: {\n      latency_trigger_ms: latencyMs,\n      timestamp: new Date().toISOString()\n    }\n  }\n}));\n"
+      },
+      "id": "16b77600-bd1a-4227-8f0d-169cb5122bdb",
+      "name": "Code: Parse + Latency metric1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -26688,
+        2880
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.task_profile.criticality }}",
+              "operation": "contains",
+              "value2": "high"
+            }
+          ]
+        }
+      },
+      "id": "beb26238-ab17-4ea0-beb1-15e90e9f0c07",
+      "name": "Switch: По критичности1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -26464,
+        2880
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6e460269-a191-4f9f-a538-835c25940703",
+      "name": "NoOp: High priority path1",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -26240,
+        2784
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b9afe662-a7a7-43c0-a227-5df9be93c850",
+      "name": "NoOp: Medium/Low path1",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -26240,
+        2976
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are Planner AI, an expert in task classification for business automation. Role: Analyze incoming task (TЗ) from JSON/Confluence, classify type (e.g., feature request, bug fix), criticality (high/medium/low based on impact), and route to pipeline (e.g., dev/prod). Use cognitive logic: Classification + routing. Few-shot examples: Input: {\"task\": \"Add AI feature\"} → Output: {\"type\": \"feature\", \"criticality\": \"high\", \"pipeline\": \"dev\"}. Ensure completeness score >90%. Output: JSON task_profile."
+            },
+            {
+              "content": "=Tasks:\n{{ JSON.stringify($json) }}\n\n\n## OUTPUT FORMAT\nFor each input task, output a JSON object with these EXACT fields:\n```json\n{\n  \"task_id\": \"same as input\",\n  \"task_description\": \"EXACT same description as input\",\n  \"type\": \"feature|bug|improvement|integration|documentation|maintenance\",\n  \"criticality\": \"high|medium|low\",\n  \"pipeline\": \"dev|prod|staging\"\n}\n"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        -27040,
+        2880
+      ],
+      "id": "0853c563-1cf3-4a09-bad9-2d7e008c2c64",
+      "name": "Message a model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "xPm9ABQzaIl7n8as",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Upload your data to test RAG",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Upload your file(s)",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf, .csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -27264,
+        3120
+      ],
+      "id": "be5b5565-45ca-4e3f-99e7-298de1fdf8bb",
+      "name": "Upload your file here",
+      "webhookId": "82848bc4-5ea2-4e5a-8bb6-3c09b94a8c5d"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -25584,
+        3312
+      ],
+      "id": "ec31b526-8c6e-4312-8679-7682cefe6980",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "zts6sb663TcK1SNI",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        -26992,
+        3312
+      ],
+      "id": "45c396fa-5ec7-43f9-9b98-b861f398e32c",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "value": "vector_store_key",
+          "mode": "list",
+          "cachedResultName": "vector_store_key"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.2,
+      "position": [
+        -27040,
+        3120
+      ],
+      "id": "27c0f350-0001-4cd6-b8ae-e41612989327",
+      "name": "Insert Data to Store"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "knowledge_base",
+        "toolDescription": "Use this knowledge base to answer questions from the user",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "list",
+          "value": "vector_store_key"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.2,
+      "position": [
+        -25664,
+        3104
+      ],
+      "id": "e26cd724-bfdd-4cb6-88e8-f2d819c71504",
+      "name": "Query Data Tool"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Входные данные:\n\nTask Profile: {{ JSON.stringify($json.task_profile) }}\nTask Description: {{ $json.task_description || \"N/A\" }}\n\nИспользуй инструмент knowledge_base для поиска релевантных документов на основе типа задачи и описания.",
+        "options": {
+          "systemMessage": "Ты — AI-агент для поиска релевантных документов из базы знаний.\n\nТвоя задача:\n1. Получить входные данные с информацией о задаче (task_profile, task_description)\n2. Использовать инструмент knowledge_base для поиска релевантных документов\n3. Сформировать поисковый запрос на основе типа задачи и описания\n4. Вернуть найденные документы в виде списка\n\nПросто используй инструмент knowledge_base с запросом, основанным на входных данных, и верни результаты."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -25760,
+        2880
+      ],
+      "id": "b7abd6fd-9a6b-4b3d-882b-683ce1b05471",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -25792,
+        3104
+      ],
+      "id": "1a679139-382e-4966-8253-55e91c1cbe19",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "zts6sb663TcK1SNI",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json;\n\n// AI Agent returns output as a string\nconst agentOutput = input.output;\n\n// Pass through all input data and add the RAG agent output\nreturn [{\n  json: {\n    ...input,\n    rag_documents: agentOutput,\n    task: input.task_description || \"\",\n    task_profile: input.task_profile || {}\n  }\n}];"
+      },
+      "id": "9cd5fcde-f43c-46a7-a996-b672951dab9f",
+      "name": "Parse RAG Agent Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -25296,
+        2880
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Функция для парсинга JSON из ответа OpenAI\nfunction parseOpenAIResponse(content) {\n  try {\n    // Ищем JSON в тексте (мог быть добавлен текстовый контекст)\n    const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n    if (jsonMatch) {\n      return JSON.parse(jsonMatch[0]);\n    }\n  } catch (e) {\n    // Если не удалось распарсить, создаем пустой объект\n    console.error('Error parsing OpenAI response:', e.message);\n  }\n  return {\n    structured_requirements: {\n      features: [],\n      non_functional: [],\n      constraints: [],\n      risks: []\n    },\n    completeness_score: 0,\n    explanation: \"Failed to parse response\"\n  };\n}\n\n// Функция для парсинга документов из текстового поля rag_documents\nfunction parseDocumentsFromText(text) {\n  const documents = [];\n  \n  if (!text) {\n    console.log('No text provided for document parsing');\n    return documents;\n  }\n  \n  try {\n    // Ищем все блоки с документами по шаблону \"Документ N:\"\n    const documentPattern = /\\d+\\.\\s+\\*\\*Документ\\s+(\\d+):\\*\\*\\s*\\n\\s*-\\s*Содержимое:\\s*(.*?)(?=\\n\\n\\d+\\.\\s+\\*\\*Документ|$)/gs;\n    \n    let match;\n    while ((match = documentPattern.exec(text)) !== null) {\n      const docNumber = parseInt(match[1]);\n      const content = match[2].trim();\n      \n      documents.push({\n        id: docNumber,\n        content: content,\n        category: determineCategory(content),\n        source: 'parsed_from_rag',\n        score: 0.8 // Базовая оценка релевантности для всех найденных документов\n      });\n    }\n    \n    // Если не удалось найти по шаблону, попробуем разбить по переносу строк\n    if (documents.length === 0) {\n      const lines = text.split('\\n').filter(line => line.trim().length > 0);\n      lines.forEach((line, index) => {\n        if (line.includes('Содержимое:')) {\n          const content = line.replace('Содержимое:', '').trim();\n          if (content.length > 10) { // Минимальная длина содержания\n            documents.push({\n              id: index + 1,\n              content: content,\n              category: determineCategory(content),\n              source: 'parsed_from_text',\n              score: 0.7\n            });\n          }\n        }\n      });\n    }\n    \n  } catch (error) {\n    console.error('Error parsing documents:', error.message);\n  }\n  \n  return documents;\n}\n\n// Функция для определения категории документа на основе содержания\nfunction determineCategory(content) {\n  const contentLower = content.toLowerCase();\n  \n  if (contentLower.includes('api') || contentLower.includes('интеграци')) {\n    return 'integration';\n  } else if (contentLower.includes('архитектур') || contentLower.includes('fastapi') || contentLower.includes('postgresql')) {\n    return 'architecture';\n  } else if (contentLower.includes('документац') || contentLower.includes('documentation')) {\n    return 'documentation';\n  } else if (contentLower.includes('ci/cd') || contentLower.includes('github actions')) {\n    return 'devops';\n  } else if (contentLower.includes('мониторинг') || contentLower.includes('логирован')) {\n    return 'monitoring';\n  } else if (contentLower.includes('переводчик') || contentLower.includes('en/ru')) {\n    return 'localization';\n  } else if (contentLower.includes('hitl') || contentLower.includes('проверку')) {\n    return 'validation';\n  }\n  \n  return 'general';\n}\n\n// Функция для извлечения ключевых фраз из текста\nfunction extractKeyPhrases(text, maxPhrases = 5) {\n  const phrases = [];\n  const words = text.toLowerCase().split(/\\s+/);\n  \n  // Ищем ключевые термины\n  const keyTerms = [\n    'api', 'интеграци', 'архитектур', 'fastapi', 'postgresql', 'react',\n    'ci/cd', 'github actions', 'cloud run', 'документац', 'переводчик',\n    'en/ru', 'логирован', 'мониторинг', 'hitl', 'проверк'\n  ];\n  \n  keyTerms.forEach(term => {\n    if (text.toLowerCase().includes(term)) {\n      phrases.push(term);\n    }\n  });\n  \n  return phrases.slice(0, maxPhrases);\n}\n\n// Основная обработка входных данных\nconst inputData = items[0].json;\n\n// Парсим ответ OpenAI, если есть\nlet parsedResponse = { explanation: \"No OpenAI response found\" };\nif (inputData.output && inputData.output.length > 0) {\n  parsedResponse = parseOpenAIResponse(inputData.output);\n}\n\n// Парсим документы из поля rag_documents\nlet parsedDocuments = [];\nif (inputData.rag_documents && inputData.rag_documents.length > 0) {\n  parsedDocuments = parseDocumentsFromText(inputData.rag_documents);\n}\n\n// Если документы не найдены в rag_documents, пробуем парсить из output\nif (parsedDocuments.length === 0 && inputData.output && inputData.output.length > 0) {\n  parsedDocuments = parseDocumentsFromText(inputData.output);\n}\n\n// Извлекаем ключевые фразы для анализа релевантности\nconst allText = [\n  inputData.output || '',\n  inputData.rag_documents || '',\n  inputData.task || ''\n].join(' ');\n\nconst keyPhrases = extractKeyPhrases(allText, 7);\n\n// Оцениваем релевантность документов на основе ключевых фраз\nparsedDocuments.forEach(doc => {\n  let relevanceScore = doc.score || 0.5;\n  \n  // Увеличиваем оценку, если в документе есть ключевые фразы\n  const docLower = doc.content.toLowerCase();\n  keyPhrases.forEach(phrase => {\n    if (docLower.includes(phrase.toLowerCase())) {\n      relevanceScore += 0.1;\n    }\n  });\n  \n  // Корректируем оценку в пределах 0-1\n  doc.score = Math.min(Math.max(relevanceScore, 0), 1);\n});\n\n// Сортируем документы по релевантности\nconst sortedDocuments = parsedDocuments\n  .sort((a, b) => b.score - a.score)\n  .map((doc, index) => ({\n    ...doc,\n    rank: index + 1,\n    similarity_score: parseFloat(doc.score.toFixed(3))\n  }));\n\n// Формируем итоговый ответ\nconst response = {\n  // Данные от OpenAI\n  openai_response: parsedResponse,\n  \n  // Распарсенные документы\n  retrieved_documents: sortedDocuments,\n  \n  // Информация о парсинге\n  parsing_summary: {\n    total_documents_parsed: parsedDocuments.length,\n    unique_documents_found: new Set(parsedDocuments.map(d => d.content)).size,\n    categories_found: [...new Set(parsedDocuments.map(d => d.category))],\n    key_phrases: keyPhrases\n  },\n  \n  // Исходные данные\n  source_data: {\n    has_output: !!inputData.output,\n    output_length: inputData.output ? inputData.output.length : 0,\n    has_rag_documents: !!inputData.rag_documents,\n    rag_documents_length: inputData.rag_documents ? inputData.rag_documents.length : 0,\n    has_task: !!inputData.task,\n    has_task_profile: !!inputData.task_profile && Object.keys(inputData.task_profile).length > 0\n  },\n  \n  // Метаданные\n  metadata: {\n    retrieval_timestamp: new Date().toISOString(),\n    processing_time_ms: Date.now() - (inputData.timestamp || Date.now())\n  }\n};\n\n// Возвращаем результат\nreturn [{ json: response }];"
+      },
+      "id": "51d94290-9552-4159-8ddb-80922b4ede73",
+      "name": "Simulate Vector Search (Mock DB)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -25040,
+        2848
+      ],
+      "notesInFlow": true,
+      "notes": "Симулируем векторный поиск: моковая БД в JSON, вычисляем cosine similarity, возвращаем топ-документы."
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "=You are Planner AI, a requirements analyst. Extract requirements from task.\n\nTask: {{ $json.task }}\nTask Type: {{ $json.task_profile.type }}\n\nRetrieved Documents:\n{{ $json.retrieved_documents.map(d => `• ${d.content}`).join(\"\\n\") }}\n\nOutput JSON:\n{\n  \"structured_requirements\": {\n    \"features\": [],\n    \"non_functional\": [],\n    \"constraints\": [],\n    \"risks\": []\n  },\n  \"completeness_score\": 0-100,\n  \"explanation\": \"...\"\n}"
+            }
+          ]
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "id": "1ef18ab5-75e2-48a8-80a9-25e6c0d1b263",
+      "name": "Planner Extractor Agent1",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -24816,
+        2848
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "xPm9ABQzaIl7n8as",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Берем первый элемент входного массива\nconst item = items[0].json;\n\n// Проверяем наличие поля message и content\nif (!item.message || !item.message.content) {\n    throw new Error(\"Unexpected response structure: message.content is missing\");\n}\n\n// Извлекаем JSON текст\nconst messageText = item.message.content;\n\n// Парсим JSON\nlet result;\ntry {\n    result = JSON.parse(messageText);\n} catch (err) {\n    throw new Error(\"Failed to parse JSON from message content: \" + err.message);\n}\n\n// Возвращаем результат в нужном формате\nreturn [{\n    json: {\n        structured_requirements: result.structured_requirements || {},\n        completeness_score: result.completeness_score || 0,\n        explanation: result.explanation || \"\",\n        task_profile: item.task_profile || {}\n    }\n}];\n"
+      },
+      "id": "2aa5f653-7346-407d-9dcd-1246131d9122",
+      "name": "Parse Extractor Output1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -24592,
+        2848
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.completeness_score }}",
+              "operation": "largerEqual",
+              "value2": 74
+            }
+          ]
+        }
+      },
+      "id": "af0274eb-3161-4074-80c0-50a94137a4a2",
+      "name": "Score >= 85?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -24368,
+        2848
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "0afd6519-934f-432e-9046-b77abf690be1",
+      "name": "Log Success & Proceed1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -24144,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "4751a470-21c0-40d6-98c2-eeae656448bf",
+      "name": "Log Low Score1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -24144,
+        2944
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "USLACKBOT",
+          "mode": "list",
+          "cachedResultName": "slackbot"
+        },
+        "text": "HITL: Низкий completeness_score ({{ $json.completeness_score }}) при анализе требований.\nTask: {{ $json.task_profile.type }}\nТребуется ручной просмотр/дополнение знаний.\n@here",
+        "otherOptions": {}
+      },
+      "id": "320975bf-726a-456c-a457-31065a95c9c0",
+      "name": "Slack Alert (Optional HITL)1",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        -23920,
+        2944
+      ],
+      "webhookId": "05c4f72a-bbd9-4c3f-8b7f-a5e16e2a7f2e",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "2FH1eo94nezj7EMQ",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-5-nano",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "=Ты Generator AI — технический составитель документов.\n\n**Роль**: Преобразуй структурированные требования (structured_requirements) в черновик технического решения.\n\n**Входные данные:**\nstructured_requirements:\n{{ $json.structured_requirements | json }}\n\n**Инструкции:**\n1. Проанализируй structured_requirements (features, constraints, risks)\n2. Создай техническое решение, покрывающее все требования\n3. Учитывай constraints (24h deployment, $10k budget, bilingual docs)\n\n**Формат вывода:** Верни строго JSON:\n{\n  \"draft_solution\": {\n    \"overview\": \"текстовое описание решения\",\n    \"components\": [\"компонент1\", \"компонент2\"],\n    \"tech_stack\": [\"технология1\", \"технология2\"],\n    \"estimated_effort\": \"оценка времени\",\n    \"dependencies\": [\"зависимость1\", \"зависимость2\"]\n  },\n  \"self_score\": число от 0 до 100\n}\n\n**Пример вывода:**\n{\n  \"draft_solution\": {\n    \"overview\": \"Решение для обработки багов и фичей: включает анализ логов, систему отчетов, документацию\",\n    \"components\": [\"Bug log analyzer\", \"Issue reproducer\", \"Patch management\", \"User story tracker\", \"Bilingual docs generator\"],\n    \"tech_stack\": [\"Python\", \"FastAPI\", \"PostgreSQL\", \"Docker\", \"Translation API\"],\n    \"estimated_effort\": \"2-3 недели\",\n    \"dependencies\": [\"Log storage access\", \"Git repository\", \"Translation service\"]\n  },\n  \"self_score\": 90\n}"
+            }
+          ]
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "id": "f79ceea6-5b70-4bb4-a801-16fbe419dd70",
+      "name": "Planner Extractor Agent5",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -23920,
+        2752
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "zts6sb663TcK1SNI",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Берем первый элемент входного массива\nconst item = items[0].json;\n\n// Проверяем наличие поля message и content\nif (!item.message || !item.message.content) {\n    throw new Error(\"Unexpected response structure: message.content is missing\");\n}\n\n// Извлекаем JSON текст\nconst messageText = item.message.content;\n\n// Парсим JSON\nlet aiResponse;\ntry {\n    aiResponse = JSON.parse(messageText);\n} catch (err) {\n    throw new Error(\"Failed to parse JSON from message content: \" + err.message);\n}\n\n// Входные данные для сохранения (предполагаем, что они есть в предыдущем элемете)\nconst originalStructuredRequirements = items[0].json.structured_requirements || {};\nconst originalTaskProfile = items[0].json.task_profile || {};\n\n// Возвращаем результат в правильном формате\nreturn [{\n    json: {\n        // Сохраняем оригинальные данные\n        structured_requirements: originalStructuredRequirements,\n        task_profile: originalTaskProfile,\n        \n        // Данные из AI response (draft_solution)\n        draft_solution: aiResponse.draft_solution || {},\n        self_score: aiResponse.self_score || 0,\n        \n        // Дополнительные поля\n        completeness_score: items[0].json.completeness_score || 0,\n        explanation: items[0].json.explanation || \"\",\n        \n        // Метка времени\n        timestamp: new Date().toISOString()\n    }\n}];"
+      },
+      "id": "71a7058a-9389-40c7-9cd2-88980fc3168a",
+      "name": "Parse Extractor Output3",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -23696,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.self_score }}",
+              "operation": "largerEqual",
+              "value2": 74
+            }
+          ]
+        }
+      },
+      "id": "2d23f15a-9aeb-498a-bcb2-fa9ec5be97b7",
+      "name": "Score >= 85?5",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -23472,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "099b7a1f-d004-48ae-81fe-fd8d1a2fd60f",
+      "name": "Log Success & Proceed3",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -23248,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1093436b-1950-492e-bd09-55622501548c",
+      "name": "Log Low Score3",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -23248,
+        2848
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "=You are Guardian AI, a quality gatekeeper. Role: Validate draft_solution against structured_requirements and policies.\nStructured Requirements:\n{{ JSON.stringify($json.structured_requirements) }}\nDraft Solution:\n{{ JSON.stringify($json.draft_solution) }}\n\nCognitive logic: Validation. Analyze each requirement (features, non_functional, constraints, risks) for coverage in draft_solution. Use contextual matching: A requirement is covered if draft_solution addresses it overall, even without verbatim mention. Apply 80/20 principle: If >=80% requirements covered → approved=true. Types of coverage: Direct mention (ideal), in components/functions (acceptable), indirect resolution (analyze). Do not create completeness issues if >80% covered or gaps are minor (low severity). For each uncovered/mismatched item, create an issue with description and severity (low/medium/high). Calculate validation_score as % covered (0-100). If issues exist, iterate critique.\nIMPORTANT EVALUATION CRITERIA:\n\nContextual Matching: Requirement covered if draft_solution solves the task holistically, even without exact wording.\n80/20 Principle: >=80% requirements covered → approved.\nCoverage Types:\nDirect text mention (ideal)\nMention in components/functions (acceptable)\nIndirect task resolution (requires analysis)\n\nAvoid Completeness Issues If:\n80% requirements covered\nMinor gaps (low severity)\n\n\nExample Analysis:\n\nRequirement: \"Быстрое развертывание\"\nIn draft: \"Deployment, CI/CD & Monitoring\" + \"быстрое развёртывание\" in overview\nOutput: ✅ COVERED (even without \"развертывание\" in components)\n\nOutput strictly JSON:\n{\n\"approved\": <bool>,\n\"issues\": [{\"description\": \"issue detail\", \"severity\": \"low/medium/high\"}],\n\"validation_score\": <number 0-100>,\n\"explanation\": \"short reasoning\",\n\"draft_solution\": <original draft_solution object, unchanged>\n}"
+            }
+          ]
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "id": "879d2d84-dc5a-40b1-a773-85b9ce715475",
+      "name": "Planner Extractor Agent6",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -22576,
+        2656
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "xPm9ABQzaIl7n8as",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "USLACKBOT",
+          "mode": "list",
+          "cachedResultName": "slackbot"
+        },
+        "text": "HITL: Низкий completeness_score ({{ $json.completeness_score }}) при анализе требований.\nTask: {{ $json.task_profile.type }}\nТребуется ручной просмотр/дополнение знаний.\n@here",
+        "otherOptions": {}
+      },
+      "id": "8e4a1379-a8bf-4597-bb7b-5733a8e1e956",
+      "name": "Slack Alert (Optional HITL)5",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        -23024,
+        2848
+      ],
+      "webhookId": "05c4f72a-bbd9-4c3f-8b7f-a5e16e2a7f2e",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "2FH1eo94nezj7EMQ",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code нода перед Guardian AI\nconst input = items[0].json;\n\n// Добавляем mock требования для теста\nconst mockRequirements = {\n  features: [\n    { description: \"Автоматическое преобразование требований в черновик\" },\n    { description: \"Поддержка двух языков (EN/RU)\" },\n    { description: \"Быстрое развертывание\" }\n  ],\n  constraints: [\n    { description: \"Бюджет до $10k\" },\n    { description: \"Развертывание в течение 24 часов\" }\n  ]\n};\n\nreturn [{\n  json: {\n    ...input,\n    structured_requirements: mockRequirements\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -23024,
+        2656
+      ],
+      "id": "4e1f8e7d-80ca-4eb7-a877-abcb831d037f",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Функция для нормализации текста (удаление лишних символов, приведение к нижнему регистру)\nfunction normalizeText(text) {\n  return text.toLowerCase()\n    .replace(/[^a-zа-я0-9\\s]/g, '') // удаляем спецсимволы\n    .replace(/\\s+/g, ' ') // убираем лишние пробелы\n    .trim();\n}\n\n// Функция для проверки покрытия требования\nfunction isRequirementCovered(requirement, draftSolution) {\n  const reqNorm = normalizeText(requirement);\n  const draftText = JSON.stringify(draftSolution).toLowerCase();\n  \n  // Разбиваем требование на ключевые слова (игнорируем стоп-слова)\n  const stopWords = ['для', 'в', 'на', 'с', 'и', 'или', 'из', 'от', 'по', 'the', 'of', 'in', 'and', 'with'];\n  const keywords = reqNorm.split(' ')\n    .filter(word => word.length > 3 && !stopWords.includes(word));\n  \n  // Проверяем наличие ключевых слов в draft\n  let matchedKeywords = 0;\n  keywords.forEach(keyword => {\n    if (draftText.includes(keyword)) {\n      matchedKeywords++;\n    }\n  });\n  \n  // Если найдено более 50% ключевых слов, считаем покрытым\n  return keywords.length > 0 ? (matchedKeywords / keywords.length) >= 0.5 : true;\n}\n\n// Основной код\nconst input = items[0].json;\nconst structuredReqs = input.structured_requirements || {};\nconst draftSolution = input.draft_solution || {};\n\n// Собираем все требования в один массив\nconst allRequirements = [];\n\n// Добавляем features\nif (structuredReqs.features && Array.isArray(structuredReqs.features)) {\n  structuredReqs.features.forEach(feature => {\n    if (feature.description) allRequirements.push(feature.description);\n  });\n}\n\n// Добавляем constraints\nif (structuredReqs.constraints && Array.isArray(structuredReqs.constraints)) {\n  structuredReqs.constraints.forEach(constraint => {\n    if (constraint.description) allRequirements.push(constraint.description);\n  });\n}\n\n// Проверяем покрытие каждого требования\nconst coverageResults = allRequirements.map(req => ({\n  requirement: req,\n  covered: isRequirementCovered(req, draftSolution),\n  matched_keywords: [] // можно расширить для детализации\n}));\n\n// Рассчитываем статистику\nconst totalRequirements = allRequirements.length;\nconst coveredRequirements = coverageResults.filter(r => r.covered).length;\nconst coveragePercentage = totalRequirements > 0 \n  ? Math.round((coveredRequirements / totalRequirements) * 100) \n  : 100;\n\n// Анализ конкретных проблем\nconst uncoveredReqs = coverageResults.filter(r => !r.covered).map(r => r.requirement);\n\n// Формируем детальный отчет\nconst coverageReport = {\n  metrics: {\n    total_requirements: totalRequirements,\n    covered_requirements: coveredRequirements,\n    coverage_percentage: coveragePercentage,\n    is_adequate: coveragePercentage >= 80\n  },\n  detailed_coverage: coverageResults,\n  uncovered_requirements: uncoveredReqs,\n  recommendations: coveragePercentage < 100 ? [\n    `Добавить явные ссылки на требования в draft_solution`,\n    `Уточнить компоненты для непокрытых требований: ${uncoveredReqs.join(', ')}`\n  ] : []\n};\n\n// Возвращаем результат с добавленным отчетом\nreturn [{\n  json: {\n    ...input,\n    // Добавляем результат из Guardian AI (если есть)\n    guardian_response: input.message ? {\n      approved: input.message.content?.approved,\n      validation_score: input.message.content?.validation_score,\n      issues: input.message.content?.issues || []\n    } : null,\n    // Наш анализ покрытия\n    coverage_analysis: coverageReport,\n    // Флаг для принятия решения\n    final_approval: coverageReport.metrics.is_adequate && \n                   (!input.message || input.message.content?.approved !== false)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -22352,
+        2656
+      ],
+      "id": "2a18598e-d001-4f38-9153-280fc2c4bbd0",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": true,
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "85086606-c507-4c13-886e-89edca62d719",
+      "name": "Score >= 85?6",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -21904,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "USLACKBOT",
+          "mode": "list",
+          "cachedResultName": "slackbot"
+        },
+        "text": "HITL: Низкий completeness_score ({{ $json.completeness_score }}) при анализе требований.\nTask: {{ $json.task_profile.type }}\nТребуется ручной просмотр/дополнение знаний.\n@here",
+        "otherOptions": {}
+      },
+      "id": "06140eb5-c195-4075-af58-221b911601ea",
+      "name": "Slack Alert (Optional HITL)6",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        -21680,
+        2752
+      ],
+      "webhookId": "05c4f72a-bbd9-4c3f-8b7f-a5e16e2a7f2e",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "2FH1eo94nezj7EMQ",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A5NDEPY1F",
+          "mode": "id"
+        },
+        "message": "=HITL Alert: Validation failed — требуется ручное ревью!  \nTask: {{ $json.task_profile?.type || 'feature' }} \nScore: {{ $json.coverage_analysis?.metrics?.coverage_percentage }}% \nIssues: {{ $json.guardian_response?.issues?.map(i => '• ' + i.description).join('\\n') }}  \n\nDraft Solution для ревью:\n{{ JSON.stringify($json.draft_solution, null, 2) }}\n\nЧто делать: \n1. Проверьте draft_solution на соответствие требованиям. \n2. Внесите правки: опишите изменения, добавьте/исправьте spec, components или steps. \n3. Ответьте в этот чат с JSON: {\"edits\": \"your detailed edits here\", \"approve\": true/false}. Если approve=false, workflow вернется на доработку в Generator.  \n\n@here — ожидаю вашего ввода для продолжения.",
+        "responseType": "freeText",
+        "options": {
+          "responseFormDescription": "={{ JSON.stringify($json.draft_solution) }}"
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        -21680,
+        2560
+      ],
+      "id": "625732db-f354-4e06-9b69-61a23c0259ea",
+      "name": "Send message and wait for response",
+      "webhookId": "b301c86b-8ac5-4d79-bac9-7a285561ff41",
+      "credentials": {
+        "slackApi": {
+          "id": "uSEHTtHsbVmWb2Q6",
+          "name": "Slack account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "=You are Post-HITL AI, an integrator responsible for applying human feedback to the draft solution after HITL review.\n\nINPUT CONTEXT:\nOriginal Draft Solution:\n{{ JSON.stringify($json.draft_solution) }}\n\nHuman Feedback Data (already normalized array):\nExample input:\n{{ $json.edits }}\n\nTASK:\n1) Parse the incoming array. Use ONLY the latest entry (last element). Extract:\n   - edits (text)\n   - loop_back (bool)\n\n2) Interpret “edits”:\n   - Apply all meaningful human corrections to the draft_solution.\n   - Update spec, components, implementation_steps accordingly.\n   - Preserve structure and semantics of the draft_solution.\n   - Do not invent requirements; use edits strictly as guidance.\n\n3) Determine approval logic:\n   - If loop_back = true → this means human requires rework. Keep solution updated with edits but mark loop_back=true.\n   - If loop_back = false → produce a finalized approved_solution.\n\n4) Estimate manual_edits_percent:\n   - Approximate % of content affected relative to the original draft_solution.\n   - Consider number of modified sections vs total relevant sections.\n\n5) Provide short reasoning.\n\nSTRICT OUTPUT FORMAT (must be valid JSON):\n{\n  \"approved_solution\": {\n    \"spec\": \"...\",\n    \"components\": [\"...\"],\n    \"implementation_steps\": [\"...\", \"...\"]\n  },\n  \"manual_edits_percent\": <number from 0 to 100>,\n  \"explanation\": \"brief explanation of what was changed and why\",\n  \"loop_back\": <true | false>\n}\n\nRULES:\n- Output ONLY JSON.\n- No markdown.\n- No text outside JSON.\n- Ensure valid JSON.\n- If nothing significant changed, manual_edits_percent should be low.\n- If loop_back=true, explanation must clearly indicate why additional iteration is required.\n"
+            }
+          ]
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "id": "0f2e7b47-8241-4c4f-8f3c-881888b3096b",
+      "name": "Planner Extractor Agent7",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -21008,
+        2464
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "xPm9ABQzaIl7n8as",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ожидаемый вход:\n// items[0].json = {\n//   data: {\n//     text: \"{ \\\"draft_solution\\\": {...}, \\\"edits\\\": \\\"...\\\", \\\"approve\\\": true }\"\n//   }\n// }\n\nconst feedbackObj = items[0].json;\nconst inputData = feedbackObj.data?.text;\n\nif (!inputData) {\n  throw new Error(\"No HITL text payload found in data.text\");\n}\n\nlet cleanedData = inputData;\n\n// Удаляем управляющие символы, которые могут ломать парсинг JSON\ntry {\n  // Заменяем \\r\\n на пробелы или просто удаляем\n  cleanedData = cleanedData.replace(/\\r\\n/g, ' ');\n  // Заменяем другие управляющие символы\n  cleanedData = cleanedData.replace(/\\r/g, ' ');\n  cleanedData = cleanedData.replace(/\\n/g, ' ');\n  // Удаляем лишние пробелы\n  cleanedData = cleanedData.replace(/\\s+/g, ' ').trim();\n  \n  // Также можно попробовать более безопасный подход с decodeURIComponent\n  // если данные были закодированы\n  if (cleanedData.includes('%')) {\n    try {\n      cleanedData = decodeURIComponent(cleanedData);\n    } catch (e) {\n      // Если не получается декодировать, продолжаем с текущими данными\n    }\n  }\n} catch (e) {\n  console.log(\"Error cleaning data:\", e.message);\n}\n\nlet parsedFeedback;\n\ntry {\n  parsedFeedback = JSON.parse(cleanedData);\n} catch (error) {\n  // Если не удалось распарсить, попробуем альтернативные методы\n  console.log(\"First parse attempt failed, trying alternative methods...\");\n  \n  try {\n    // Попробуем найти JSON в тексте с помощью regex\n    const jsonMatch = cleanedData.match(/\\{[\\s\\S]*\\}/);\n    if (jsonMatch) {\n      const jsonStr = jsonMatch[0];\n      // Еще раз очистим от управляющих символов внутри строк\n      const finalJsonStr = jsonStr.replace(/\\\\r\\\\n/g, ' ')\n                                   .replace(/\\\\n/g, ' ')\n                                   .replace(/\\\\r/g, ' ');\n      parsedFeedback = JSON.parse(finalJsonStr);\n    } else {\n      throw new Error(\"No valid JSON found in the text\");\n    }\n  } catch (innerError) {\n    // Если все методы не сработали, выводим ошибку с деталями\n    console.error(\"Original data:\", inputData);\n    console.error(\"Cleaned data:\", cleanedData);\n    throw new Error(\"Failed to parse HITL feedback JSON: \" + error.message + \n                   \". Inner error: \" + innerError.message);\n  }\n}\n\nconst approve = parsedFeedback.approve;\nconst edits = parsedFeedback.edits || \"\";\nconst draft_solution = parsedFeedback.draft_solution || null;\n\nreturn [\n  {\n    json: {\n      approve,\n      edits,\n      draft_solution,\n      loop_back: approve === true ? false : true,\n      parsing_success: true,\n      original_data_preview: inputData.substring(0, 100) + \"...\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -21456,
+        2560
+      ],
+      "id": "51dfd82b-d584-4cec-aadc-66415e859d76",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": true,
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "41b4b056-cc33-4a6c-bf64-159cf614ffc9",
+      "name": "Score >= 85?7",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -21232,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "USLACKBOT",
+          "mode": "list",
+          "cachedResultName": "slackbot"
+        },
+        "text": "HITL: Низкий completeness_score ({{ $json.completeness_score }}) при анализе требований.\nTask: {{ $json.task_profile.type }}\nТребуется ручной просмотр/дополнение знаний.\n@here",
+        "otherOptions": {}
+      },
+      "id": "a3de74e4-b9c6-4e22-8c9c-b0b6f925bd9c",
+      "name": "Slack Alert (Optional HITL)7",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        -21008,
+        2656
+      ],
+      "webhookId": "05c4f72a-bbd9-4c3f-8b7f-a5e16e2a7f2e",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "2FH1eo94nezj7EMQ",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// DEBUG: Log all input data fields and their types\nconst input = items[0].json;\n\nconsole.log('=== DEBUG: Input Data Before Guardian AI ===');\nconsole.log('Full input object:', JSON.stringify(input, null, 2));\nconsole.log('\\n--- Field Types ---');\n\nfor (const key in input) {\n  if (input.hasOwnProperty(key)) {\n    const value = input[key];\n    const type = Array.isArray(value) ? 'array' : typeof value;\n    console.log(`${key}: ${type}`);\n    \n    if (type === 'object' && value !== null) {\n      console.log(`  ${key} keys:`, Object.keys(value));\n    } else if (type === 'array') {\n      console.log(`  ${key} length:`, value.length);\n    }\n  }\n}\n\nconsole.log('\\n--- Specific Fields Check ---');\nconsole.log('structured_requirements:', input.structured_requirements);\nconsole.log('draft_solution:', input.draft_solution);\nconsole.log('task_profile:', input.task_profile);\nconsole.log('self_score:', input.self_score);\nconsole.log('completeness_score:', input.completeness_score);\n\nconsole.log('=== END DEBUG ===');\n\n// Pass through the data unchanged\nreturn items;"
+      },
+      "id": "f571a2e0-f813-46e0-b8e6-b599ad0d422d",
+      "name": "DEBUG: Check Data Before Guardian1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -22800,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0].json;\n\n// Guardian AI возвращает массив, берем первый элемент\nlet guardianResponse;\ntry {\n  const content = input.message.content;\n  guardianResponse = JSON.parse(content);\n} catch (e) {\n  throw new Error('Failed to parse Guardian AI response: ' + e.message);\n}\n\n// Извлекаем draft_solution из ответа Guardian AI\nconst draftSolution = guardianResponse.draft_solution || {};\n\n// Возвращаем все данные с извлеченным draft_solution на верхнем уровне\nreturn [{\n  json: {\n    task_profile: input.task_profile || {},\n    structured_requirements: input.structured_requirements || {},\n    draft_solution: draftSolution,\n    guardian_response: {\n      approved: guardianResponse.approved,\n      validation_score: guardianResponse.validation_score,\n      issues: guardianResponse.issues || [],\n      explanation: guardianResponse.explanation\n    },\n    coverage_analysis: input.coverage_analysis || {},\n    final_approval: input.final_approval\n  }\n}];"
+      },
+      "id": "0e7f6db0-0beb-4fd5-9869-2b1551d21a10",
+      "name": "Extract Draft Solution1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -22128,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "USLACKBOT",
+          "mode": "list",
+          "cachedResultName": "slackbot"
+        },
+        "text": "HITL: Низкий completeness_score ({{ $json.completeness_score }}) при анализе требований.\nTask: {{ $json.task_profile.type }}\nТребуется ручной просмотр/дополнение знаний.\n@here",
+        "otherOptions": {}
+      },
+      "id": "7e40850c-be95-45b5-9552-65daa8e5882e",
+      "name": "Slack Alert (Optional HITL)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [
+        -26032,
+        3056
+      ],
+      "webhookId": "05c4f72a-bbd9-4c3f-8b7f-a5e16e2a7f2e",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "2FH1eo94nezj7EMQ",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Webhook: Intake задачи1": [
+      {
+        "json": {
+          "task_id": "TASK-123",
+          "task_description": "Добавить интеграцию с новым API для автоматической публикации контента",
+          "context": "Срочный запрос от маркетинга, дедлайн 31 декабря",
+          "products_x": "Product Y v2.1"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook: Intake задачи1": {
+      "main": [
+        [
+          {
+            "node": "Message a model1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Parse + Latency metric1": {
+      "main": [
+        [
+          {
+            "node": "Switch: По критичности1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: По критичности1": {
+      "main": [
+        [
+          {
+            "node": "NoOp: High priority path1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp: Medium/Low path1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NoOp: High priority path1": {
+      "main": [
+        [
+          {
+            "node": "Respond: task_profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NoOp: Medium/Low path1": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert (Optional HITL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model1": {
+      "main": [
+        [
+          {
+            "node": "Code: Parse + Latency metric1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload your file here": {
+      "main": [
+        [
+          {
+            "node": "Insert Data to Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Insert Data to Store",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "Query Data Tool",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Insert Data to Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Data Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: task_profile": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse RAG Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Vector Search (Mock DB)": {
+      "main": [
+        [
+          {
+            "node": "Planner Extractor Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner Extractor Agent1": {
+      "main": [
+        [
+          {
+            "node": "Parse Extractor Output1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extractor Output1": {
+      "main": [
+        [
+          {
+            "node": "Score >= 85?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score >= 85?1": {
+      "main": [
+        [
+          {
+            "node": "Log Success & Proceed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Low Score1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success & Proceed1": {
+      "main": [
+        [
+          {
+            "node": "Planner Extractor Agent5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Low Score1": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert (Optional HITL)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner Extractor Agent5": {
+      "main": [
+        [
+          {
+            "node": "Parse Extractor Output3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extractor Output3": {
+      "main": [
+        [
+          {
+            "node": "Score >= 85?5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score >= 85?5": {
+      "main": [
+        [
+          {
+            "node": "Log Success & Proceed3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Low Score3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success & Proceed3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Low Score3": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert (Optional HITL)5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner Extractor Agent6": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "DEBUG: Check Data Before Guardian1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Extract Draft Solution1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score >= 85?6": {
+      "main": [
+        [
+          {
+            "node": "Send message and wait for response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Alert (Optional HITL)6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send message and wait for response": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Score >= 85?7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score >= 85?7": {
+      "main": [
+        [
+          {
+            "node": "Planner Extractor Agent7",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Alert (Optional HITL)7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DEBUG: Check Data Before Guardian1": {
+      "main": [
+        [
+          {
+            "node": "Planner Extractor Agent6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Draft Solution1": {
+      "main": [
+        [
+          {
+            "node": "Score >= 85?6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse RAG Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Simulate Vector Search (Mock DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6ce84374-e81d-44b6-8328-e1298c0a78bf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6c5dbb694e1834b7ab4d34da19419a7611f8b7cfc90eedfa9bde6bc639d4a42d"
+  },
+  "id": "ZCR9pCYCPj651Q5S",
+  "tags": []
+}
